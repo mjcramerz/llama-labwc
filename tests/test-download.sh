@@ -41,7 +41,8 @@ chmod +x "$tmp/bin/curl"
 common=(
     CONFIG_FROM_MAKE=1 ROOT_DIR="$ROOT" ALLOW_EXTERNAL_DIRS=1
     SOURCE_DIR="$tmp/source" BUILD_DIR="$tmp/build" OUTPUT_DIR="$tmp/output" MODEL_DIR="$tmp/output/models"
-    PATH="$tmp/bin:$PATH" FAKE_API_JSON="$tmp/data/api.json" FAKE_PAYLOAD="$payload" FAKE_CURL_LOG="$tmp/curl.log"
+    TOOLCHAIN_PATH_PREFIX="$tmp/bin:/usr/bin:/bin" PATH="$tmp/bin:$PATH"
+    FAKE_API_JSON="$tmp/data/api.json" FAKE_PAYLOAD="$payload" FAKE_CURL_LOG="$tmp/curl.log"
 )
 
 env "${common[@]}" MODEL=qwen3.5-0.8b-q4_k_m HF_TOKEN=hf_test_secret "$ROOT/scripts/download-model.sh" >/dev/null

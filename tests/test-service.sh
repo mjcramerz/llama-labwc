@@ -32,7 +32,8 @@ common=(
   SOURCE_DIR="$tmp/source" BUILD_DIR="$tmp/build" OUTPUT_DIR="$tmp/output" MODEL_DIR="$tmp/output/models"
   SERVER_MODEL=demo SERVER_API_KEY=top_secret SERVER_PIN_MODEL=1 SERVER_FULL_GPU_OFFLOAD=1
   SERVER_KEEP_MODEL_LOADED=1 SERVER_HOST=127.0.0.1 SERVER_PORT=18080
-  SERVICE_NAME=llama-test PATH="$tmp/fake-bin:$PATH" HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/config"
+  SERVICE_NAME=llama-test TOOLCHAIN_PATH_PREFIX="$tmp/fake-bin:/usr/bin:/bin"
+  PATH="$tmp/fake-bin:$PATH" HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/config"
   FAKE_SERVER_LOG="$tmp/server.log" FAKE_SYSTEMCTL_LOG="$tmp/systemctl.log"
 )
 env "${common[@]}" "$ROOT/scripts/service.sh" render

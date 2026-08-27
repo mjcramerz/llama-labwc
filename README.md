@@ -25,43 +25,42 @@ Install a CPU build toolchain on Debian:
 sudo apt-get update
 sudo apt-get install --yes \
     build-essential cmake ninja-build git curl ca-certificates python3 \
-    pkg-config ccache
+    pkg-config sccache bubblewrap perl
 ```
 
 Then build and choose a model:
 
 ```bash
-make doctor
-make build
+make doctor-ram
+make build-ram
 make download
 ```
 
 Run the local CLI:
 
 ```bash
-make run MODEL=qwen3.5-0.8b-q4_k_m \
+make run OUTPUT_DIR=output/ram MODEL=qwen3.5-0.8b-q4_k_m \
     PROMPT='Explain virtual memory in three paragraphs.'
 ```
 
 Or run the OpenAI-compatible HTTP server in the foreground:
 
 ```bash
-make server SERVER_MODEL=qwen3.5-0.8b-q4_k_m
+make server OUTPUT_DIR=output/ram SERVER_MODEL=qwen3.5-0.8b-q4_k_m
 ```
 
 Generated files are staged under:
 
 ```text
-.cache/llama.cpp/               pinned upstream source checkout
-.build/native/                  CMake build tree
-output/bin/llama-cli            staged CLI
-output/bin/llama-server         staged HTTP server
-output/bin/llama-bench          staged benchmark tool
-output/bin/llama-quantize       staged GGUF quantizer
-output/bin/llama-gguf-split     staged split/join utility
-output/models/<model-id>/       downloaded GGUF files and provenance
-output/metadata/                build command, commit, hashes, dependencies
-output/systemd/                 generated user-service unit and private config
+.cache/llama.cpp/               shared pinned upstream source checkout
+.cache/sccache/{ram,cuda}/      isolated compiler caches
+.build/{ram,cuda}/              isolated CMake build trees
+output/{ram,cuda}/bin/          profile-specific staged tools
+output/{ram,cuda}/metadata/     commands, commit, hashes, and dependencies
+output/{ram,cuda}/share/llama-ui/ pinned original web-asset bundle and provenance
+output/llama-ram.tar.gz         reproducible CPU/RAM binary archive
+output/llama-cuda.tar.gz        reproducible Quadro P520 CUDA archive
+output/models/<model-id>/       shared downloaded GGUF files and provenance
 ```
 
 Labwc requires no special integration: all produced programs are ordinary
@@ -75,6 +74,11 @@ command-line applications and are independent of the active Wayland compositor.
 | `make source` | Fetch the pinned upstream ref into the managed source directory. |
 | `make configure` | Generate a host-native Release CMake build tree. |
 | `make build` | Compile and stage configured tools under `output/bin`. |
+| `make build-ram` | Build the CPU/RAM profile under `output/ram` and create `output/llama-ram.tar.gz`. |
+| `make build-cuda` | Build the Quadro P520 `sm_61` profile under `output/cuda` and create `output/llama-cuda.tar.gz`. |
+| `make doctor-ram` / `doctor-cuda` | Validate the selected profile, compiler launchers, and backend toolchain. |
+| `make info-ram` / `info-cuda` | Print the fully resolved profile without building. |
+| `make package-ram` / `package-cuda` | Re-verify staged binaries and recreate the deterministic archive. |
 | `make verify` | Check executable size, launchability, and unresolved shared libraries. |
 | `make info` | Print effective configuration with secrets redacted. |
 | `make list-devices` | Ask the staged CLI to enumerate compute devices. |
@@ -89,13 +93,14 @@ command-line applications and are independent of the active Wayland compositor.
 | `make service-status` / `service-logs` | Inspect the user service. |
 | `make service-uninstall` | Stop and remove only the generated user unit. |
 | `make clean` | Remove build products and staged executables; preserve source/models. |
+| `make clean-ram` / `clean-cuda` | Clean only that profile's build/staging tree; preserve source, models, sccache, and archive. |
 | `make distclean` | Also remove managed source; preserve models. |
 | `make purge CONFIRM=YES` | Remove all managed source, builds, output, and models. |
 | `make test` | Run the offline integration suite. |
 
 ## Host-only optimization policy
 
-The default CPU profile is intentionally non-portable:
+The RAM profile is intentionally host-native and non-portable:
 
 ```text
 CMAKE_BUILD_TYPE=Release
@@ -137,8 +142,9 @@ Edit `.env`, copy values from `.env.example`, or override any setting on the
 Make command line. Command-line values take precedence:
 
 ```bash
-make clean
-make build ENABLE_BLAS=1 BLAS_VENDOR=OpenBLAS
+make clean-ram
+make build-ram LLAMA_RAM_BUILD_JOBS=8
+make build-cuda LLAMA_CUDA_BUILD_JOBS=4
 ```
 
 Important defaults:
@@ -152,6 +158,68 @@ ENABLE_CPU_REPACK=1
 ENABLE_FAST_MATH=0
 ```
 
+### RAM and Quadro P520 CUDA profiles
+
+The two primary targets map `LLAMA_RAM_*` or `LLAMA_CUDA_*` settings onto the
+same validated build scripts. They share only immutable/downloaded inputs; all
+mutable build, stage, compiler-cache, and archive paths are separate.
+
+| Setting | `make build-ram` | `make build-cuda` |
+|---|---|---|
+| Build profile | `ram` | `cuda` |
+| CMake tree | `.build/ram` | `.build/cuda` |
+| Staged tools | `output/ram/bin` | `output/cuda/bin` |
+| Archive | `output/llama-ram.tar.gz` | `output/llama-cuda.tar.gz` |
+| Compiler cache | `.cache/sccache/ram` | `.cache/sccache/cuda` |
+| Primary backend | CPU only | CUDA plus CPU fallback |
+| CUDA architecture | disabled | `61` (`sm_61`) |
+| CUDA graphs | disabled | disabled to conserve the P520's 2 GiB VRAM |
+| Peer copies / NCCL | disabled | disabled for the single-GPU profile |
+| Kernel selection | n/a | runtime choice; neither MMQ nor cuBLAS is forced |
+| Embedded server UI | verified `b10270` prebuilt bundle | verified `b10270` prebuilt bundle |
+
+Both profiles use `-O3`, `GGML_NATIVE`, LTO, OpenMP, CPU repacking, llamafile
+kernels, and `sccache` for C/C++. The CUDA profile explicitly selects CUDA 12.8
+`nvcc`, GCC/G++ 14, Flash Attention, binary compression mode `size`, and
+`CMAKE_CUDA_ARCHITECTURES=61` for the NVIDIA Quadro P520.
+`TOOLCHAIN_PATH_PREFIX=/usr/bin:/bin` puts Debian binutils ahead of inherited
+custom PATH entries so GCC, `gcc-ar`, CMake, Ninja, and sccache resolve the same
+host toolchain deterministically.
+
+Both profiles build `llama-server` with an embedded, gzip-compressed UI. They
+pin the upstream `ggml-org/llama-ui` bundle to version `b10270` and SHA-256
+`c63b205dc7b5574a3d8f2d7793d1d1bbad886a81a14a04c591d536b05ac4d8ba`.
+The wrapper passes the version through `HF_UI_VERSION`, verifies both the
+downloaded checksum file and this configured digest, and refuses to stage or
+package a server when those values differ. This avoids upstream's mutable
+`latest` fallback and its warning-only empty-UI behavior.
+
+For artifact completeness, each staged profile and final `.tar.gz` also carries
+the byte-for-byte verified upstream bundle as `share/llama-ui/dist.tar.gz`, plus
+a normalized `SHA256SUMS` and `bundle-info.txt`. `llama-server` does not read
+this archive at runtime because the same assets are already embedded in the
+executable. The preserved bundle exists for independent auditing, controlled
+redistribution, and build provenance; it is not a GGUF model and contains no
+model weights.
+
+Current Debian/glibc headers conflict with several declarations in CUDA 12.8's
+`math_functions.h`. The CUDA profile creates a checked private copy under
+`.cache/cuda-compat/12.8` and uses Bubblewrap to overlay only that file while
+`nvcc` runs. It never edits `/usr/local/cuda-*` or another system file. Disable
+this host-specific workaround only when the installed CUDA/glibc combination
+does not need it:
+
+```bash
+make build-cuda LLAMA_CUDA_ENABLE_CUDA_GLIBC_COMPAT=0
+```
+
+Each archive has one deterministic top-level directory (`llama-ram/` or
+`llama-cuda/`) containing `bin/`, `metadata/`, and `share/llama-ui/`. Tar entries
+are name-sorted, normalized to epoch mtime and numeric owner/group zero, and
+compressed with `gzip -n`. Packaging verifies `metadata/SHA256SUMS`, including
+the preserved UI bundle and its provenance records, before atomically replacing
+the final `.tar.gz`.
+
 The default staged tools are `llama-cli`, `llama-server`, `llama-bench`,
 `llama-quantize`, and `llama-gguf-split`. Because `.env` is intentionally
 readable by both GNU Make and POSIX-like shells, override the space-separated
@@ -164,15 +232,18 @@ make build BUILD_TARGETS='llama-cli llama-server llama-bench'
 The source manager records the exact fetched commit. With an existing stamped
 checkout, normal builds reuse that commit without touching the network.
 `make update-source` explicitly refreshes the configured ref. `OFFLINE=1`
-forbids source/model network access and succeeds only when all required local
-material is already present.
+forbids source/model/UI network access and succeeds only when all required
+local material is already present. For a UI-enabled profile, the matching
+`dist/index.html`, `.ui-stamp`, archive, and checksum must already exist under
+`.build/<profile>/tools/ui`; `make clean-ram` or `make clean-cuda` removes that
+profile-specific cache.
 
 ### CPU with OpenBLAS
 
 ```bash
 sudo apt-get install --yes libopenblas-dev
-make clean
-make build ENABLE_BLAS=1 BLAS_VENDOR=OpenBLAS
+make clean-ram
+make build-ram LLAMA_RAM_ENABLE_BLAS=1 LLAMA_RAM_BLAS_VENDOR=OpenBLAS
 ```
 
 BLAS commonly helps prompt and large-batch processing more than token-by-token
@@ -183,13 +254,15 @@ generation. Benchmark both configurations on the actual workload.
 Install a driver and CUDA toolkit appropriate for the host, then:
 
 ```bash
-make clean
-make build ENABLE_CUDA=1 CUDA_ARCHS=auto
+make doctor-cuda
+make build-cuda
 ```
 
-`CUDA_ARCHS=auto` queries attached NVIDIA devices and compiles only their
-compute capabilities. An explicit example is `CUDA_ARCHS=89`. The defaults also
-enable CUDA Flash Attention and CUDA graphs while leaving NCCL disabled.
+The dedicated profile is intentionally hardware-specific: it compiles only
+`sm_61`, enables CUDA Flash Attention, disables CUDA graphs/peer copies/NCCL,
+and leaves MMQ versus cuBLAS selection to ggml. For a different NVIDIA GPU,
+override `LLAMA_CUDA_CUDA_ARCHS` and review the other `LLAMA_CUDA_*` defaults
+rather than reusing a P520-tuned binary blindly.
 
 ### AMD ROCm/HIP
 
@@ -332,11 +405,15 @@ rejected rather than being mislabeled as GGUF.
 
 ## CLI and benchmarks
 
+Runtime targets use the generic `OUTPUT_DIR`; point it at the staged profile you
+want to execute (`output/ram` or `output/cuda`). The examples below use RAM.
+
 `make run` uses detected physical CPU cores for generation and logical cores for
 batch/prompt work unless overridden:
 
 ```bash
 make run \
+    OUTPUT_DIR=output/ram \
     MODEL=qwen3.5-0.8b-q4_k_m \
     RUNTIME_THREADS=8 \
     RUNTIME_THREADS_BATCH=16 \
@@ -348,17 +425,17 @@ make run \
 Extra upstream arguments can be supplied through `ARGS`:
 
 ```bash
-make run MODEL=qwen3-8b-q4_k_m ARGS='--temp 0.6 --top-p 0.9'
+make run OUTPUT_DIR=output/ram MODEL=qwen3-8b-q4_k_m ARGS='--temp 0.6 --top-p 0.9'
 ```
 
 Benchmark the same staged build/model:
 
 ```bash
-make bench MODEL=qwen3-8b-q4_k_m
-make bench MODEL=qwen3-8b-q4_k_m ARGS='-p 512 -n 128'
+make bench OUTPUT_DIR=output/ram MODEL=qwen3-8b-q4_k_m
+make bench OUTPUT_DIR=output/ram MODEL=qwen3-8b-q4_k_m ARGS='-p 512 -n 128'
 ```
 
-Use `make list-devices` after a GPU build to inspect upstream device names, then
+Use `make list-devices OUTPUT_DIR=output/cuda` after a GPU build to inspect upstream device names, then
 set `RUNTIME_DEVICE` or `SERVER_DEVICE` when explicit device selection is
 needed.
 
@@ -368,6 +445,7 @@ The foreground server uses the same model resolver:
 
 ```bash
 make server \
+    OUTPUT_DIR=output/ram \
     SERVER_MODEL=qwen3.5-0.8b-q4_k_m \
     SERVER_HOST=127.0.0.1 \
     SERVER_PORT=8080
@@ -418,21 +496,21 @@ SERVER_GPU_LAYERS=auto
 Render and inspect before enabling:
 
 ```bash
-make service-render
-cat output/systemd/llama-server-native.service
-make service-enable ENABLE_USER_SERVICE=1
-make service-status
-make service-logs
+make service-render OUTPUT_DIR=output/ram
+cat output/ram/systemd/llama-server-native.service
+make service-enable OUTPUT_DIR=output/ram ENABLE_USER_SERVICE=1
+make service-status OUTPUT_DIR=output/ram
+make service-logs OUTPUT_DIR=output/ram
 ```
 
 Lifecycle:
 
 ```bash
-make service-stop
-make service-start
-make service-restart
-make service-disable
-make service-uninstall
+make service-stop OUTPUT_DIR=output/ram
+make service-start OUTPUT_DIR=output/ram
+make service-restart OUTPUT_DIR=output/ram
+make service-disable OUTPUT_DIR=output/ram
+make service-uninstall OUTPUT_DIR=output/ram
 ```
 
 How residency settings map to `llama-server`:
@@ -461,8 +539,8 @@ sudo loginctl enable-linger "$USER"
 
 This repository reports linger status but never changes it automatically.
 
-The generated private configuration is stored at
-`output/systemd/<service>.conf` with mode `0600`. The installed unit goes to
+The generated private configuration is stored below the selected profile, for
+example `output/ram/systemd/<service>.conf`, with mode `0600`. The installed unit goes to
 `${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/`. `make clean`, `distclean`, and
 `purge` refuse to remove staged files while that unit remains installed; run
 `make service-uninstall` first.
@@ -478,11 +556,16 @@ The source checkout refuses tracked modifications unless
 `FORCE_SOURCE_RESET=1`. Build metadata records:
 
 - upstream repository, configured ref, and exact commit;
-- host/kernel and selected backend;
+- build profile, host/kernel, and selected backend;
 - compiler/CMake versions and effective Release flags;
-- detected CUDA or AMD architecture targets;
+- compiler-cache selection and isolated sccache path;
+- detected CUDA or AMD architecture targets and CUDA P520 policy flags;
+- requested and resolved embedded-UI bucket, version, and archive SHA-256;
+- the exact pinned UI archive under `share/llama-ui/`, with a nested checksum
+  manifest and normalized provenance;
 - build target list;
 - SHA-256 for each staged executable;
+- a `metadata/SHA256SUMS` manifest verified before packaging;
 - `file(1)` and `ldd` output where available.
 
 ## Troubleshooting
@@ -496,8 +579,20 @@ compiler.
 
 **GPU build works but no layers offload** — run `make list-devices`, inspect
 startup logs, verify the vendor driver/runtime, and review
-`output/metadata/ldd.txt`. Try an explicit `SERVER_DEVICE` and
+`output/cuda/metadata/ldd.txt`. Try an explicit `SERVER_DEVICE` and
 `SERVER_GPU_LAYERS`.
+
+**CUDA 12.8 fails in `math_functions.h` on current Debian** — keep
+`LLAMA_CUDA_ENABLE_CUDA_GLIBC_COMPAT=1`, verify `bubblewrap` and `perl` are
+installed, and run `make doctor-cuda`. The wrapper validates the exact header
+declarations before creating its private overlay and fails closed if the vendor
+header no longer matches the expected form.
+
+**`UI: no assets available` or an offline UI-cache error** — the RAM/CUDA
+profiles must use their pinned `b10270` prebuilt UI. Run the profile once online
+to seed `.build/<profile>/tools/ui`, or provide a separately verified local UI
+only after disabling the pinned prebuilt/checksum settings. Do not suppress the
+warning: it means `llama-server` would otherwise lack its embedded web UI.
 
 **Out of memory despite a model fitting on disk** — weight size excludes KV
 cache, graph buffers, mmproj, parallel slots, and some backend scratch memory.
@@ -521,13 +616,16 @@ repository. The model card/license remains authoritative.
 `make test` is offline and creates temporary local fixtures. It validates shell
 syntax, manifest structure, GGUF selection/split handling, token isolation,
 checksum policy, corruption recovery, source pinning, CMake compilation,
-staging, executable verification, safe cleanup, server command construction,
-and rootless service lifecycle behavior.
+staging, RAM/CUDA profile isolation, `sm_61` flag propagation, deterministic
+tarball packaging, pinned embedded-UI flags/provenance, byte-identical bundle
+staging, required bundle archive entries, offline UI-cache behavior, build-cache
+and staged-bundle tamper rejection, executable verification, safe cleanup,
+server command construction, and rootless service lifecycle behavior.
 
 The integration CMake project is deliberately synthetic; it proves wrapper
 orchestration without downloading upstream source or multi-gigabyte models.
-A real `make build` remains the final validation for the selected compiler,
-backend SDK, and current host.
+A real `make build-ram` or `make build-cuda` remains the final validation for
+the selected compiler, backend SDK, and current host.
 
 ## Licenses
 

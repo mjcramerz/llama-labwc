@@ -19,6 +19,7 @@ for test_script in \
     tests/test-resolver.sh \
     tests/test-download.sh \
     tests/test-build-wrapper.sh \
+    tests/test-profile-builds.sh \
     tests/test-service.sh; do
     printf '==> %s\n' "$test_script"
     "$test_script"

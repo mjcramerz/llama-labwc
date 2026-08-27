@@ -41,6 +41,8 @@ common=(
   CONFIG_FROM_MAKE=1 ROOT_DIR="$ROOT" ALLOW_EXTERNAL_DIRS=1
   LLAMA_CPP_REPO="$remote" LLAMA_CPP_REF="$commit"
   SOURCE_DIR="$tmp/source" BUILD_DIR="$tmp/build" OUTPUT_DIR="$tmp/output" MODEL_DIR="$tmp/output/models"
+  CMAKE_C_COMPILER=/usr/bin/gcc-14 CMAKE_CXX_COMPILER=/usr/bin/g++-14
+  CMAKE_C_FLAGS=-B/usr/bin CMAKE_CXX_FLAGS=-B/usr/bin
   CMAKE_GENERATOR="Unix Makefiles" BUILD_JOBS=2 STRIP_BINARIES=0 ENABLE_LTO=0 ENABLE_CCACHE=0 ENABLE_OPENMP=0
 )
 env "${common[@]}" "$ROOT/scripts/source.sh"

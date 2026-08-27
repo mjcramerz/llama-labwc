@@ -5,11 +5,22 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/lib.sh"
 
 validate_common_config
 require_cmd cmake
+require_cmd env
 require_cmd realpath
 [[ -f "$SOURCE_DIR_ABS/CMakeLists.txt" ]] || die "Source is not ready; run make source"
+cmake_path="$(canonical_command cmake || true)"
+[[ -n "$cmake_path" ]] || die "Could not resolve the CMake executable"
 
 generator="$(choose_generator)"
 build_marker="$BUILD_DIR_ABS/.native-builder-build"
+cmake_make_program=''
+case "$generator" in
+    Ninja*) cmake_make_program="$(canonical_command ninja || true)" ;;
+    "Unix Makefiles") cmake_make_program="$(canonical_command make || true)" ;;
+esac
+if [[ "$generator" == Ninja* || "$generator" == "Unix Makefiles" ]]; then
+    [[ -n "$cmake_make_program" ]] || die "Could not resolve the build program for generator '$generator'"
+fi
 
 if [[ -e "$BUILD_DIR_ABS" && ! -d "$BUILD_DIR_ABS" ]]; then
     die "BUILD_DIR exists but is not a directory: $BUILD_DIR_ABS"
@@ -55,6 +66,14 @@ fi
 
 c_flags="$(effective_c_flags)"
 cxx_flags="$(effective_cxx_flags)"
+cuda_flags="$(effective_cuda_flags)"
+prepare_sccache_dir
+prepare_cuda_glibc_compat
+
+upstream_ccache="$ENABLE_CCACHE"
+if sccache_enabled; then
+    upstream_ccache=0
+fi
 
 args=(
     -S "$SOURCE_DIR_ABS"
@@ -63,6 +82,8 @@ args=(
     -DCMAKE_BUILD_TYPE=Release
     "-DCMAKE_C_COMPILER=$cc_path"
     "-DCMAKE_CXX_COMPILER=$cxx_path"
+    "-DCMAKE_C_FLAGS=$CMAKE_C_FLAGS"
+    "-DCMAKE_CXX_FLAGS=$CMAKE_CXX_FLAGS"
     "-DCMAKE_C_FLAGS_RELEASE=$c_flags"
     "-DCMAKE_CXX_FLAGS_RELEASE=$cxx_flags"
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
@@ -79,11 +100,13 @@ args=(
     -DLLAMA_SUBPROCESS=ON
     "-DLLAMA_BUILD_UI=$(cmake_bool "$ENABLE_SERVER_UI")"
     "-DLLAMA_USE_PREBUILT_UI=$(cmake_bool "$USE_PREBUILT_UI")"
+    "-DLLAMA_UI_HF_BUCKET=$SERVER_UI_HF_BUCKET"
+    "-DLLAMA_UI_GZIP=$(cmake_bool "$ENABLE_SERVER_UI_GZIP")"
     "-DLLAMA_OPENSSL=$(cmake_bool "$ENABLE_OPENSSL")"
     "-DLLAMA_LLGUIDANCE=$(cmake_bool "$ENABLE_LLGUIDANCE")"
     "-DGGML_NATIVE=$(cmake_bool "$GGML_NATIVE")"
     "-DGGML_LTO=$(cmake_bool "$ENABLE_LTO")"
-    "-DGGML_CCACHE=$(cmake_bool "$ENABLE_CCACHE")"
+    "-DGGML_CCACHE=$(cmake_bool "$upstream_ccache")"
     "-DGGML_OPENMP=$(cmake_bool "$ENABLE_OPENMP")"
     "-DGGML_CPU_REPACK=$(cmake_bool "$ENABLE_CPU_REPACK")"
     "-DGGML_LLAMAFILE=$(cmake_bool "$ENABLE_LLAMAFILE")"
@@ -102,6 +125,9 @@ args=(
     "-DGGML_CUDA_NCCL=$(cmake_bool "$ENABLE_CUDA_NCCL")"
     "-DGGML_CUDA_FORCE_MMQ=$(cmake_bool "$CUDA_FORCE_MMQ")"
     "-DGGML_CUDA_FORCE_CUBLAS=$(cmake_bool "$CUDA_FORCE_CUBLAS")"
+    "-DGGML_CUDA_NO_PEER_COPY=$(cmake_bool "$CUDA_NO_PEER_COPY")"
+    "-DGGML_CUDA_NO_VMM=$(cmake_bool "$CUDA_NO_VMM")"
+    "-DGGML_CUDA_COMPRESSION_MODE=$CUDA_COMPRESSION_MODE"
     "-DGGML_HIP=$(cmake_bool "$ENABLE_HIP")"
     "-DGGML_HIP_GRAPHS=$(cmake_bool "$ENABLE_HIP_GRAPHS")"
     "-DGGML_HIP_RCCL=$(cmake_bool "$ENABLE_HIP_RCCL")"
@@ -114,10 +140,43 @@ args=(
     "-DGGML_RPC=$(cmake_bool "$ENABLE_RPC")"
 )
 
+if [[ -n "$cmake_make_program" ]]; then
+    args+=("-DCMAKE_MAKE_PROGRAM=$cmake_make_program")
+fi
+
+if sccache_enabled; then
+    args+=(
+        "-DCMAKE_C_COMPILER_LAUNCHER=$CMAKE_C_COMPILER_LAUNCHER"
+        "-DCMAKE_CXX_COMPILER_LAUNCHER=$CMAKE_CXX_COMPILER_LAUNCHER"
+    )
+fi
+
 if [[ "$ENABLE_CUDA" == "1" ]]; then
+    cuda="$(selected_cuda)"
+    cuda_path="$(canonical_command "$cuda" || true)"
+    [[ -n "$cuda_path" ]] || die "CUDA compiler not found: $cuda"
+    cuda_host="$(selected_cuda_host)"
+    cuda_host_path="$(canonical_command "$cuda_host" || true)"
+    [[ -n "$cuda_host_path" ]] || die "CUDA host compiler not found: $cuda_host"
     cuda_archs="$(detect_cuda_archs || true)"
     [[ -n "$cuda_archs" ]] || die "Could not determine host CUDA architecture; set CUDA_ARCHS explicitly"
-    args+=("-DCMAKE_CUDA_ARCHITECTURES=$cuda_archs")
+    cmake_cuda_compiler="$cuda_path"
+    cmake_cuda_launcher="$CMAKE_CUDA_COMPILER_LAUNCHER"
+    if [[ "$ENABLE_CUDA_GLIBC_COMPAT" == "1" ]]; then
+        cmake_cuda_compiler="$ROOT_DIR/scripts/cuda-compat-nvcc.sh"
+        cmake_cuda_launcher=''
+        unset CMAKE_CUDA_COMPILER_LAUNCHER
+    fi
+    args+=(
+        "-DCMAKE_CUDA_COMPILER=$cmake_cuda_compiler"
+        "-DCMAKE_CUDA_HOST_COMPILER=$cuda_host_path"
+        "-DCMAKE_CUDA_FLAGS=$CMAKE_CUDA_FLAGS"
+        "-DCMAKE_CUDA_FLAGS_RELEASE=$cuda_flags"
+        "-DCMAKE_CUDA_ARCHITECTURES=$cuda_archs"
+    )
+    if [[ -n "$cmake_cuda_launcher" ]]; then
+        args+=("-DCMAKE_CUDA_COMPILER_LAUNCHER=$cmake_cuda_launcher")
+    fi
     info "CUDA architectures: $cuda_archs"
 fi
 
@@ -137,9 +196,16 @@ if [[ -n "$EXTRA_CMAKE_ARGS" ]]; then
     args+=("${extra_args[@]}")
 fi
 
-log "Configuring host-native llama.cpp Release build with $generator"
-printf 'cmake' >"$BUILD_DIR_ABS/cmake-command.txt"
-printf ' %q' "${args[@]}" >>"$BUILD_DIR_ABS/cmake-command.txt"
-printf '\n' >>"$BUILD_DIR_ABS/cmake-command.txt"
-cmake "${args[@]}"
+log "Configuring llama.cpp $BUILD_PROFILE Release build with $generator"
+cmake_env=()
+if [[ "$ENABLE_SERVER_UI" == "1" && -n "$SERVER_UI_VERSION" ]]; then
+    cmake_env+=("HF_UI_VERSION=$SERVER_UI_VERSION")
+fi
+{
+    printf '%q' env
+    printf ' %q' "${cmake_env[@]}" "$cmake_path"
+    printf ' %q' "${args[@]}"
+    printf '\n'
+} >"$BUILD_DIR_ABS/cmake-command.txt"
+env "${cmake_env[@]}" "$cmake_path" "${args[@]}"
 info "Configured build directory: $BUILD_DIR_ABS"

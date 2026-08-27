@@ -76,10 +76,15 @@ metadata_value() {
 metadata_profile="$(metadata_value build_profile)"
 [[ "$metadata_profile" == "$BUILD_PROFILE" ]] \
     || die "Staged metadata profile '$metadata_profile' does not match requested profile '$BUILD_PROFILE'"
+expected_server_ui=0
+server_ui_enabled && expected_server_ui=1
 metadata_server_ui="$(metadata_value server_ui)"
+metadata_server_ui_build_from_source="$(metadata_value server_ui_build_from_source)"
 metadata_server_ui_prebuilt="$(metadata_value server_ui_prebuilt)"
-[[ "$metadata_server_ui" == "$ENABLE_SERVER_UI" ]] \
-    || die "Staged server UI setting '$metadata_server_ui' does not match requested setting '$ENABLE_SERVER_UI'"
+[[ "$metadata_server_ui" == "$expected_server_ui" ]] \
+    || die "Staged server UI setting '$metadata_server_ui' does not match requested setting '$expected_server_ui'"
+[[ "$metadata_server_ui_build_from_source" == "$ENABLE_SERVER_UI" ]] \
+    || die "Staged source-built UI setting does not match ENABLE_SERVER_UI"
 [[ "$metadata_server_ui_prebuilt" == "$USE_PREBUILT_UI" ]] \
     || die "Staged prebuilt UI setting '$metadata_server_ui_prebuilt' does not match requested setting '$USE_PREBUILT_UI'"
 if [[ "$USE_PREBUILT_UI" == "1" ]]; then

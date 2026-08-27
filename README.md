@@ -177,6 +177,7 @@ mutable build, stage, compiler-cache, and archive paths are separate.
 | Peer copies / NCCL | disabled | disabled for the single-GPU profile |
 | Kernel selection | n/a | runtime choice; neither MMQ nor cuBLAS is forced |
 | Embedded server UI | verified `b10270` prebuilt bundle | verified `b10270` prebuilt bundle |
+| Local npm/Svelte UI build | disabled | disabled |
 
 Both profiles use `-O3`, `GGML_NATIVE`, LTO, OpenMP, CPU repacking, llamafile
 kernels, and `sccache` for C/C++. The CUDA profile explicitly selects CUDA 12.8
@@ -189,6 +190,11 @@ host toolchain deterministically.
 Both profiles build `llama-server` with an embedded, gzip-compressed UI. They
 pin the upstream `ggml-org/llama-ui` bundle to version `b10270` and SHA-256
 `c63b205dc7b5574a3d8f2d7793d1d1bbad886a81a14a04c591d536b05ac4d8ba`.
+They deliberately configure `LLAMA_BUILD_UI=OFF` and
+`LLAMA_USE_PREBUILT_UI=ON`: the former disables the local npm/Svelte build,
+while the latter provisions and embeds the pinned bundle. These modes remain
+mutually exclusive so installing npm cannot silently replace the verified
+bundle with a locally generated, unstamped UI.
 The wrapper passes the version through `HF_UI_VERSION`, verifies both the
 downloaded checksum file and this configured digest, and refuses to stage or
 package a server when those values differ. This avoids upstream's mutable
@@ -594,6 +600,12 @@ to seed `.build/<profile>/tools/ui`, or provide a separately verified local UI
 only after disabling the pinned prebuilt/checksum settings. Do not suppress the
 warning: it means `llama-server` would otherwise lack its embedded web UI.
 
+**`Pinned server UI stamp is missing` after an npm/Svelte build** — this means
+both upstream UI modes were enabled and npm took priority, producing a local UI
+without the prebuilt-bundle stamp. The profile defaults now prevent that state
+with `LLAMA_*_ENABLE_SERVER_UI=0` and `LLAMA_*_USE_PREBUILT_UI=1`. Re-run the
+normal profile build online so the pinned bundle replaces the local npm output.
+
 **Out of memory despite a model fitting on disk** — weight size excludes KV
 cache, graph buffers, mmproj, parallel slots, and some backend scratch memory.
 Reduce `CTX_SIZE`/`SERVER_CTX_SIZE`, `SERVER_PARALLEL`, GPU layers, or choose a
@@ -619,8 +631,9 @@ checksum policy, corruption recovery, source pinning, CMake compilation,
 staging, RAM/CUDA profile isolation, `sm_61` flag propagation, deterministic
 tarball packaging, pinned embedded-UI flags/provenance, byte-identical bundle
 staging, required bundle archive entries, offline UI-cache behavior, build-cache
-and staged-bundle tamper rejection, executable verification, safe cleanup,
-server command construction, and rootless service lifecycle behavior.
+and staged-bundle tamper rejection, npm/prebuilt mode-exclusivity rejection,
+executable verification, safe cleanup, server command construction, and
+rootless service lifecycle behavior.
 
 The integration CMake project is deliberately synthetic; it proves wrapper
 orchestration without downloading upstream source or multi-gigabyte models.

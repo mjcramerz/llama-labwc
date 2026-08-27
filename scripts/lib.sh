@@ -216,6 +216,9 @@ validate_uint() {
     [[ "$allow_zero" != "0" || "$value" != "0" ]] || die "$name must be greater than zero"
 }
 cmake_bool() { [[ "$1" == "1" ]] && printf 'ON\n' || printf 'OFF\n'; }
+server_ui_enabled() {
+    [[ "$ENABLE_SERVER_UI" == "1" || "$USE_PREBUILT_UI" == "1" ]]
+}
 sccache_enabled() {
     [[ "$CMAKE_C_COMPILER_LAUNCHER" == "sccache" \
         && "$CMAKE_CXX_COMPILER_LAUNCHER" == "sccache" ]]
@@ -298,7 +301,7 @@ verify_server_ui_assets() {
     SERVER_UI_ASSET_SOURCE=disabled
     SERVER_UI_ASSET_VERSION=disabled
     SERVER_UI_ASSET_SHA256=disabled
-    [[ "$ENABLE_SERVER_UI" == "1" ]] || return 0
+    server_ui_enabled || return 0
 
     local source_dist="$SOURCE_DIR_ABS/tools/ui/dist"
     local binary_ui="$BUILD_DIR_ABS/tools/ui"
@@ -347,7 +350,7 @@ verify_server_ui_assets() {
     SERVER_UI_ASSET_SHA256="$actual"
 }
 require_offline_server_ui_cache() {
-    [[ "$OFFLINE" == "1" && "$ENABLE_SERVER_UI" == "1" && "$USE_PREBUILT_UI" == "1" ]] \
+    [[ "$OFFLINE" == "1" && "$USE_PREBUILT_UI" == "1" ]] \
         || return 0
     if [[ ! -s "$SOURCE_DIR_ABS/tools/ui/dist/index.html" \
         && ! -s "$BUILD_DIR_ABS/tools/ui/dist/index.html" ]]; then
@@ -419,8 +422,6 @@ validate_common_config() {
         || die "ENABLE_SYCL_F16=1 requires ENABLE_SYCL=1"
     [[ "$ENABLE_CUDA_FA_ALL_QUANTS" != "1" || "$ENABLE_CUDA_FA" == "1" ]] \
         || die "ENABLE_CUDA_FA_ALL_QUANTS=1 requires ENABLE_CUDA_FA=1"
-    [[ "$USE_PREBUILT_UI" != "1" || "$ENABLE_SERVER_UI" == "1" ]] \
-        || die "USE_PREBUILT_UI=1 requires ENABLE_SERVER_UI=1"
     if [[ -n "$SERVER_UI_VERSION" ]]; then
         [[ "$SERVER_UI_VERSION" =~ ^[A-Za-z0-9._-]+$ ]] \
             || die "SERVER_UI_VERSION must contain only letters, digits, dots, underscores, and hyphens"
@@ -430,6 +431,8 @@ validate_common_config() {
             || die "SERVER_UI_SHA256 must be a 64-character hexadecimal SHA-256"
     fi
     if [[ "$USE_PREBUILT_UI" == "1" ]]; then
+        [[ "$ENABLE_SERVER_UI" == "0" ]] \
+            || die "USE_PREBUILT_UI=1 requires ENABLE_SERVER_UI=0 so npm cannot override the pinned bundle"
         [[ "$SERVER_UI_HF_BUCKET" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
             || die "SERVER_UI_HF_BUCKET must be an owner/bucket identifier"
         [[ -n "$SERVER_UI_VERSION" ]] \

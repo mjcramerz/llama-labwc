@@ -198,7 +198,7 @@ fi
 
 log "Configuring llama.cpp $BUILD_PROFILE Release build with $generator"
 cmake_env=()
-if [[ "$ENABLE_SERVER_UI" == "1" && -n "$SERVER_UI_VERSION" ]]; then
+if server_ui_enabled && [[ -n "$SERVER_UI_VERSION" ]]; then
     cmake_env+=("HF_UI_VERSION=$SERVER_UI_VERSION")
 fi
 {

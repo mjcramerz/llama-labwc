@@ -114,6 +114,8 @@ cxx_path="$(canonical_command "$cxx" || printf '%s' "$cxx")"
 cuda_archs=disabled; amd_targets=disabled
 [[ "$ENABLE_CUDA" == "1" ]] && cuda_archs="$(detect_cuda_archs || printf unknown)"
 [[ "$ENABLE_HIP" == "1" ]] && amd_targets="$(detect_amd_targets || printf unknown)"
+server_ui=0
+server_ui_enabled && server_ui=1
 
 {
     printf 'built_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -179,7 +181,8 @@ cuda_archs=disabled; amd_targets=disabled
     printf 'opencl=%s\n' "$ENABLE_OPENCL"
     printf 'openvino=%s\n' "$ENABLE_OPENVINO"
     printf 'rpc=%s\n' "$ENABLE_RPC"
-    printf 'server_ui=%s\n' "$ENABLE_SERVER_UI"
+    printf 'server_ui=%s\n' "$server_ui"
+    printf 'server_ui_build_from_source=%s\n' "$ENABLE_SERVER_UI"
     printf 'server_ui_prebuilt=%s\n' "$USE_PREBUILT_UI"
     printf 'server_ui_gzip=%s\n' "$ENABLE_SERVER_UI_GZIP"
     printf 'server_ui_hf_bucket=%s\n' "$SERVER_UI_HF_BUCKET"

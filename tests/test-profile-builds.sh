@@ -10,7 +10,7 @@ for expected in \
     'LLAMA_RAM_BUILD_DIR=.build/ram' \
     'LLAMA_RAM_OUTPUT_DIR=output/ram' \
     'LLAMA_RAM_ARCHIVE_PATH=output/llama-ram.tar.gz' \
-    'LLAMA_RAM_ENABLE_SERVER_UI=1' \
+    'LLAMA_RAM_ENABLE_SERVER_UI=0' \
     'LLAMA_RAM_USE_PREBUILT_UI=1' \
     'LLAMA_RAM_SERVER_UI_VERSION=b10270' \
     'LLAMA_RAM_SERVER_UI_SHA256=c63b205dc7b5574a3d8f2d7793d1d1bbad886a81a14a04c591d536b05ac4d8ba' \
@@ -21,7 +21,7 @@ for expected in \
     'LLAMA_CUDA_CUDA_NO_PEER_COPY=1' \
     'LLAMA_CUDA_ENABLE_CUDA_GRAPHS=0' \
     'LLAMA_CUDA_ENABLE_CUDA_NCCL=0' \
-    'LLAMA_CUDA_ENABLE_SERVER_UI=1' \
+    'LLAMA_CUDA_ENABLE_SERVER_UI=0' \
     'LLAMA_CUDA_USE_PREBUILT_UI=1' \
     'LLAMA_CUDA_SERVER_UI_VERSION=b10270' \
     'LLAMA_CUDA_SERVER_UI_SHA256=c63b205dc7b5574a3d8f2d7793d1d1bbad886a81a14a04c591d536b05ac4d8ba' \
@@ -51,7 +51,7 @@ cat >"$fake_upstream/CMakeLists.txt" <<'CMAKE'
 cmake_minimum_required(VERSION 3.18)
 project(fake_llama_profiles LANGUAGES C CXX)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
-if(LLAMA_BUILD_UI AND LLAMA_USE_PREBUILT_UI)
+if(LLAMA_USE_PREBUILT_UI)
   if(NOT DEFINED ENV{HF_UI_VERSION})
     message(FATAL_ERROR "HF_UI_VERSION was not provided")
   endif()
@@ -160,7 +160,7 @@ ram_args=(
     LLAMA_RAM_ENABLE_LTO=0
     LLAMA_RAM_ENABLE_OPENMP=0
     LLAMA_RAM_STRIP_BINARIES=0
-    LLAMA_RAM_ENABLE_SERVER_UI=1
+    LLAMA_RAM_ENABLE_SERVER_UI=0
     LLAMA_RAM_USE_PREBUILT_UI=1
     LLAMA_RAM_SERVER_UI_HF_BUCKET=ggml-org/llama-ui
     "LLAMA_RAM_SERVER_UI_VERSION=$fake_ui_version"
@@ -176,11 +176,12 @@ done
 grep -Fqx 'build_profile=ram' "$tmp/output/ram/metadata/build-info.txt"
 grep -Fqx 'backend=CPU' "$tmp/output/ram/metadata/build-info.txt"
 grep -Fqx 'server_ui=1' "$tmp/output/ram/metadata/build-info.txt"
+grep -Fqx 'server_ui_build_from_source=0' "$tmp/output/ram/metadata/build-info.txt"
 grep -Fqx 'server_ui_prebuilt=1' "$tmp/output/ram/metadata/build-info.txt"
 grep -Fqx "server_ui_asset_version=$fake_ui_version" "$tmp/output/ram/metadata/build-info.txt"
 grep -Fqx "server_ui_asset_sha256=$fake_ui_sha256" "$tmp/output/ram/metadata/build-info.txt"
 grep -F -- '-DGGML_CUDA=OFF' "$tmp/output/ram/metadata/cmake-command.txt" >/dev/null
-grep -F -- '-DLLAMA_BUILD_UI=ON' "$tmp/output/ram/metadata/cmake-command.txt" >/dev/null
+grep -F -- '-DLLAMA_BUILD_UI=OFF' "$tmp/output/ram/metadata/cmake-command.txt" >/dev/null
 grep -F -- '-DLLAMA_USE_PREBUILT_UI=ON' "$tmp/output/ram/metadata/cmake-command.txt" >/dev/null
 grep -F -- '-DLLAMA_UI_HF_BUCKET=ggml-org/llama-ui' "$tmp/output/ram/metadata/cmake-command.txt" >/dev/null
 grep -F -- '-DLLAMA_UI_GZIP=ON' "$tmp/output/ram/metadata/cmake-command.txt" >/dev/null
@@ -221,7 +222,7 @@ cuda_args=(
     LLAMA_CUDA_ENABLE_LTO=0
     LLAMA_CUDA_ENABLE_OPENMP=0
     LLAMA_CUDA_STRIP_BINARIES=0
-    LLAMA_CUDA_ENABLE_SERVER_UI=1
+    LLAMA_CUDA_ENABLE_SERVER_UI=0
     LLAMA_CUDA_USE_PREBUILT_UI=1
     LLAMA_CUDA_SERVER_UI_HF_BUCKET=ggml-org/llama-ui
     "LLAMA_CUDA_SERVER_UI_VERSION=$fake_ui_version"
@@ -238,6 +239,7 @@ grep -Fqx 'build_profile=cuda' "$tmp/output/cuda/metadata/build-info.txt"
 grep -Fqx 'backend=CUDA' "$tmp/output/cuda/metadata/build-info.txt"
 grep -Fqx 'cuda_architectures=61' "$tmp/output/cuda/metadata/build-info.txt"
 grep -Fqx 'server_ui=1' "$tmp/output/cuda/metadata/build-info.txt"
+grep -Fqx 'server_ui_build_from_source=0' "$tmp/output/cuda/metadata/build-info.txt"
 grep -Fqx 'server_ui_prebuilt=1' "$tmp/output/cuda/metadata/build-info.txt"
 grep -Fqx "server_ui_asset_version=$fake_ui_version" "$tmp/output/cuda/metadata/build-info.txt"
 grep -Fqx "server_ui_asset_sha256=$fake_ui_sha256" "$tmp/output/cuda/metadata/build-info.txt"
@@ -247,7 +249,7 @@ grep -F -- '-DGGML_CUDA_NO_PEER_COPY=ON' "$tmp/output/cuda/metadata/cmake-comman
 grep -F -- '-DGGML_CUDA_GRAPHS=OFF' "$tmp/output/cuda/metadata/cmake-command.txt" >/dev/null
 grep -F -- '-DGGML_CUDA_NCCL=OFF' "$tmp/output/cuda/metadata/cmake-command.txt" >/dev/null
 grep -F -- '-DGGML_CUDA_COMPRESSION_MODE=size' "$tmp/output/cuda/metadata/cmake-command.txt" >/dev/null
-grep -F -- '-DLLAMA_BUILD_UI=ON' "$tmp/output/cuda/metadata/cmake-command.txt" >/dev/null
+grep -F -- '-DLLAMA_BUILD_UI=OFF' "$tmp/output/cuda/metadata/cmake-command.txt" >/dev/null
 grep -F -- '-DLLAMA_USE_PREBUILT_UI=ON' "$tmp/output/cuda/metadata/cmake-command.txt" >/dev/null
 assert_staged_ui_bundle "$tmp/build/cuda" "$tmp/output/cuda" "$fake_ui_version" "$fake_ui_sha256"
 cuda_listing="$tmp/cuda-archive-listing.txt"
@@ -310,6 +312,13 @@ if make -C "$ROOT_DIR" --no-print-directory info-cuda LLAMA_CUDA_ENABLE_CUDA=0 >
     exit 1
 fi
 grep -Fq 'cuda profile requires ENABLE_CUDA=1' "$tmp/invalid-cuda.log"
+
+if make -C "$ROOT_DIR" --no-print-directory info-cuda \
+    LLAMA_CUDA_ENABLE_SERVER_UI=1 >"$tmp/invalid-ui-mode.log" 2>&1; then
+    printf 'CUDA profile unexpectedly accepted simultaneous npm and pinned prebuilt UI modes\n' >&2
+    exit 1
+fi
+grep -Fq 'npm cannot override the pinned bundle' "$tmp/invalid-ui-mode.log"
 
 if make -C "$ROOT_DIR" --no-print-directory info-ram \
     LLAMA_RAM_ARCHIVE_PATH=output/ram/nested.tar.gz >"$tmp/invalid-archive.log" 2>&1; then

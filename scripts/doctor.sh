@@ -217,7 +217,7 @@ CMAKE
     info "OpenVINO CMake package probe succeeded"
 fi
 
-if [[ "$ENABLE_SERVER_UI" == "1" && "$USE_PREBUILT_UI" == "1" ]]; then
+if [[ "$USE_PREBUILT_UI" == "1" ]]; then
     info "Pinned server UI: $SERVER_UI_HF_BUCKET $SERVER_UI_VERSION ($SERVER_UI_SHA256)"
     require_offline_server_ui_cache
 fi
